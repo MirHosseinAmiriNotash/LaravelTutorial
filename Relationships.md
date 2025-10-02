@@ -1709,12 +1709,87 @@ foreach ($user->posts as $post) {
 در این حالت لاراول رابطه را فقط زمانی که به آن دسترسی پیدا می‌کنیم Lazy Load می‌کند (یعنی داده‌ها را تنبل‌وار و فقط در زمان نیاز می‌آورد).
 
 
-### Lazy Loading vs Eager Loading 
-**Lazy Loading (بارگذاری تنبل):** وقتی اولین بار به رابطه دسترسی پیدا کنید، کوئری اجرا می‌شود. اگر در یک حلقه بارها این کار انجام شود، تعداد زیادی کوئری اجرا خواهد شد.
+### Lazy Loading vs Eager Loading   
 
-**Eager Loading (بارگذاری پیش‌دستانه):** اگر می‌دانید که بعد از گرفتن مدل، قرار است روابطش را هم نیاز داشته باشید، می‌توانید از eager loading استفاده کنید تا همه داده‌ها با یک یا چند کوئری کمتر از قبل گرفته شوند:
+**Lazy Loading (بارگذاری تنبل):**   
+وقتی اولین بار به رابطه دسترسی پیدا کنید، کوئری اجرا می‌شود. اگر در یک حلقه بارها این کار انجام شود، تعداد زیادی کوئری اجرا خواهد شد.
+
+**Eager Loading (بارگذاری پیش‌دستانه):**     
+  
+  اگر می‌دانید که بعد از گرفتن مدل، قرار است روابطش را هم نیاز داشته باشید، می‌توانید از eager loading استفاده کنید تا همه داده‌ها با یک یا چند کوئری کمتر از قبل گرفته شوند:
+  
+  
+
 ```php
 $users = User::with('posts')->get();
 ```
 این کار باعث می‌شود همه پست‌های کاربران همراه با خود کاربران واکشی شوند و در نتیجه تعداد کوئری‌ها به شدت کاهش پیدا کند.
   
+## Querying Relationship Existence  
+گاهی اوقات لازم است هنگام واکشی رکوردهای مدل، نتایج را بر اساس وجود داشتن یا نداشتن یک رابطه محدود کنید. برای مثال، فرض کنید می‌خواهید تمام پست‌های وبلاگ را واکشی کنید که حداقل یک کامنت دارند. برای این کار می‌توانید از متدهای has یا orHas استفاده کنید:  
+```php  
+use App\Models\Post;
+
+// Retrieve all posts that have at least one comment...
+$posts = Post::has('comments')->get();
+```
+همچنین می‌توانید یک عملگر و مقدار مشخص کنید تا کوئری خود را دقیق‌تر کنید:  
+```php  
+// Retrieve all posts that have three or more comments...
+$posts = Post::has('comments', '>=', 3)->get();
+```
+برای ساخت شرط‌های تو در تو، می‌توانید از نوتیشن `"dot"` استفاده کنید. مثلاً اگر بخواهید تمام پست‌هایی که حداقل یک کامنت دارند و آن کامنت‌ها نیز حداقل یک تصویر دارند را واکشی کنید:  
+```php  
+// Retrieve posts that have at least one comment with images...
+$posts = Post::has('comments.images')->get();
+```  
+اگر نیاز به قدرت و انعطاف بیشتری داشتید، می‌توانید از متدهای `whereHas` و `orWhereHas` استفاده کنید تا محدودیت‌های بیشتری روی کوئری اعمال کنید؛ مثلاً بررسی محتوای کامنت‌ها:  
+```php 
+use Illuminate\Database\Eloquent\Builder;
+
+// Retrieve posts with at least one comment containing words like code%...
+$posts = Post::whereHas('comments', function (Builder $query) {
+    $query->where('content', 'like', 'code%');
+})->get();
+
+// Retrieve posts with at least ten comments containing words like code%...
+$posts = Post::whereHas('comments', function (Builder $query) {
+    $query->where('content', 'like', 'code%');
+}, '>=', 10)->get();
+``` 
+>نکته: در حال حاضر، Eloquent از کوئری زدن برای وجود رابطه‌ها در دیتابیس‌های متفاوت پشتیبانی نمی‌کند. همه‌ی روابط باید در یک دیتابیس وجود داشته باشند.  
+ 
+### Many to Many Relationship Existence Queries  
+متد whereAttachedTo در لاراول برای کوئری گرفتن روی مدل‌هایی استفاده می‌شود که از طریق یک رابطه‌ی Many to Many به یک مدل دیگر یا مجموعه‌ای از مدل‌ها متصل باشند.
+
+به‌عنوان مثال، فرض کنید هر کاربر می‌تواند نقش‌های مختلفی داشته باشد. برای اینکه تمام کاربرانی را پیدا کنیم که به یک نقش خاص متصل هستند، می‌توانیم به شکل زیر عمل کنیم:
+```php  
+$users = User::whereAttachedTo($role)->get();  
+```
+همچنین می‌توانیم یک Collection از مدل‌ها را به متد whereAttachedTo بدهیم. در این صورت لاراول همه مدل‌هایی را برمی‌گرداند که به هرکدام از مدل‌های موجود در Collection متصل باشند:  
+```php  
+$tags = Tag::whereLike('name', '%laravel%')->get();
+
+$posts = Post::whereAttachedTo($tags)->get();  
+```
+در مثال بالا، ابتدا همه‌ی تگ‌هایی که نامشان شامل عبارت «laravel» است را پیدا می‌کنیم، سپس همه‌ی پست‌هایی را می‌گیریم که به هرکدام از این تگ‌ها متصل باشند.
+
+### Inline Relationship Existence Queries
+گاهی اوقات می‌خواهید وجود یک رابطه را بررسی کنید اما تنها با یک شرط ساده روی همان رابطه. در چنین شرایطی، لاراول متدهای راحت‌تری مثل whereRelation ،orWhereRelation ،whereMorphRelation و orWhereMorphRelation را در اختیارتان قرار می‌دهد.
+
+این متدها به شما امکان می‌دهند بدون نیاز به نوشتن whereHas طولانی، شرط روی رابطه را مستقیم در یک خط بنویسید.
+
+مثال: فرض کنید می‌خواهیم همه‌ی پست‌هایی را بگیریم که کامنت تأیید نشده دارند: 
+```php  
+use App\Models\Post;
+
+$posts = Post::whereRelation('comments', 'is_approved', false)->get();  
+```
+یا مثلا بخواهیم همه پست‌هایی را پیدا کنیم که یکی از کامنت‌هایشان در یک ساعت گذشته ایجاد شده باشد:  
+```php  
+$posts = Post::whereRelation(
+    'comments', 'created_at', '>=', now()->subHour()
+)->get();  
+```  
+
+## Querying Relationship Absence
