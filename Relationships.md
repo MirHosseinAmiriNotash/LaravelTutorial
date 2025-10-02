@@ -1565,3 +1565,156 @@ foreach ($tag->videos as $video) {
 }  
 ```    
 ### Custom Polymorphic Types
+به‌صورت پیش‌فرض، لاراول برای ذخیره‌ی نوع مدل مرتبط در ستون «type»، از نام کامل کلاس استفاده می‌کند. برای مثال، در رابطه‌ی One-to-Many Polymorphic که در آن یک Comment می‌تواند به یک Post یا Video تعلق داشته باشد، مقدار commentable_type به‌صورت پیش‌فرض App\Models\Post یا App\Models\Video خواهد بود.
+
+اما ممکن است بخواهید این مقادیر را از ساختار داخلی اپلیکیشن جدا کنید. به عنوان مثال، به‌جای استفاده از نام کامل کلاس‌ها، می‌توانیم از رشته‌های ساده‌ای مثل post و video استفاده کنیم. با این کار، مقادیر ستون «type» در دیتابیس حتی در صورت تغییر نام یا جابجایی مدل‌ها معتبر باقی خواهند ماند.
+
+برای این کار از متد enforceMorphMap استفاده می‌کنیم:  
+  
+```php  
+use Illuminate\Database\Eloquent\Relations\Relation;
+
+Relation::enforceMorphMap([
+    'post' => 'App\Models\Post',
+    'video' => 'App\Models\Video',
+]);  
+```
+>شما می‌توانید این کد را در متد boot کلاس App\Providers\AppServiceProvider قرار دهید یا در صورت نیاز یک Service Provider مجزا برای آن ایجاد کنید.
+
+#### دریافت نام مستعار (Alias) یا کلاس اصلی
+
+برای دریافت alias مربوط به یک مدل در زمان اجرا، می‌توان از متد getMorphClass استفاده کرد.  
+برای دریافت نام کامل کلاس مرتبط با یک alias نیز می‌توان از متد Relation::getMorphedModel استفاده کرد.  
+```php  
+use Illuminate\Database\Eloquent\Relations\Relation;
+
+$alias = $post->getMorphClass();
+
+$class = Relation::getMorphedModel($alias);  
+```  
+زمانی که یک morph map را به اپلیکیشن موجود اضافه می‌کنید، باید تمام مقادیر موجود در ستون‌های *_type که همچنان شامل نام کامل کلاس هستند را به مقادیر alias جدید تغییر دهید تا ناسازگاری پیش نیاید.  
+  
+## Dynamic Relationships
+لاراول این امکان را فراهم می‌کند که به‌صورت داینامیک روابط بین مدل‌ها را در زمان اجرا تعریف کنید. این کار با استفاده از متد resolveRelationUsing انجام می‌شود. هرچند این روش معمولاً برای توسعه‌های عادی اپلیکیشن توصیه نمی‌شود، اما در مواقعی مثل توسعه پکیج‌ها می‌تواند بسیار مفید باشد.
+
+متد resolveRelationUsing دو آرگومان می‌پذیرد:
+
+آرگومان اول: نام رابطه‌ای که می‌خواهید تعریف کنید.
+
+آرگومان دوم: یک Closure که مدل را دریافت کرده و یک تعریف رابطه Eloquent معتبر برمی‌گرداند.  
+```php  
+use App\Models\Order;
+use App\Models\Customer;
+
+Order::resolveRelationUsing('customer', function (Order $orderModel) {
+    return $orderModel->belongsTo(Customer::class, 'customer_id');
+});  
+```  
+>نکته: هنگام تعریف روابط داینامیک، همیشه نام کلیدهای خارجی (foreign keys) را به‌طور صریح مشخص کنید تا از خطاهای احتمالی جلوگیری شود.
+
+این روش بیشتر برای زمانی مناسب است که بخواهید درون پکیج‌ها یا افزونه‌ها روابطی را بدون تغییر مستقیم در کد مدل‌ها ایجاد کنید.    
+  
+## Querying Relations  
+از آنجایی که تمام روابط Eloquent از طریق متدها تعریف می‌شوند، شما می‌توانید این متدها را صدا بزنید تا یک نمونه از رابطه دریافت کنید، بدون اینکه فوراً کوئری اجرا شود. علاوه بر این، تمام انواع روابط Eloquent به عنوان query builder هم عمل می‌کنند، بنابراین می‌توانید محدودیت‌ها و شرط‌های بیشتری به کوئری اضافه کنید و در نهایت آن را روی دیتابیس اجرا کنید.
+
+برای مثال، فرض کنید یک اپلیکیشن وبلاگ داریم که در آن مدل User دارای چندین مدل Post است:  
+```php  
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+
+class User extends Model
+{
+    /**
+     * Get all of the posts for the user.
+     */
+    public function posts(): HasMany
+    {
+        return $this->hasMany(Post::class);
+    }
+}  
+```  
+اکنون می‌توانیم رابطه posts را کوئری کنیم و شرط‌های اضافی روی آن اعمال کنیم:  
+```php  
+use App\Models\User;
+
+$user = User::find(1);
+
+$user->posts()->where('active', 1)->get();  
+```  
+در این مثال، ابتدا رابطه posts بازیابی می‌شود، سپس با استفاده از query builder شرط where اضافه شده و در نهایت نتایج گرفته می‌شوند.
+
+### Chaining orWhere Clauses After Relationships 
+همانطور که در مثال قبل دیدیم، می‌توانیم هنگام کوئری گرفتن از روابط، شرط‌های اضافه اعمال کنیم. اما باید دقت کنیم وقتی که از orWhere استفاده می‌کنیم، چون این شرط‌ها هم‌سطح شرط رابطه قرار می‌گیرند و ممکن است منطق کوئری ما را تغییر دهند. 
+```php  
+$user->posts()
+    ->where('active', 1)
+    ->orWhere('votes', '>=', 100)
+    ->get();  
+```
+این کد کوئری زیر را تولید می‌کند:  
+```sql 
+select *
+from posts
+where user_id = ? and active = 1 or votes >= 100  
+```
+همانطور که می‌بینید، شرط or باعث می‌شود که تمام پست‌هایی که بیش از 100 رأی دارند هم برگردند، حتی اگر متعلق به کاربر مورد نظر نباشند.   
+
+راه‌حل درست استفاده از گروه‌بندی شرط‌ها با پرانتز است:  
+```php  
+use Illuminate\Database\Eloquent\Builder;
+
+$user->posts()
+    ->where(function (Builder $query) {
+        return $query->where('active', 1)
+            ->orWhere('votes', '>=', 100);
+    })
+    ->get();  
+```
+که این کوئری SQL زیر را تولید می‌کند:  
+```sql 
+select *
+from posts
+where user_id = ? and (active = 1 or votes >= 100)  
+```
+در این حالت، شرط orWhere به درستی در محدوده‌ی همان کاربر اعمال می‌شود و نتیجه‌ی صحیح بازگردانده خواهد شد.  
+  
+## Relationship Methods vs. Dynamic Properties  
+در لاراول، وقتی یک رابطه (relationship) بین مدل‌ها تعریف می‌کنیم، دو روش برای دسترسی به داده‌های مرتبط داریم:
+
+### استفاده از متد رابطه
+
+اگر بخواهیم روی رابطه شرط یا کوئری اضافه کنیم (مثلاً where یا orderBy)، باید از متد رابطه استفاده کنیم: 
+```php 
+$user = User::find(1);
+
+$activePosts = $user->posts()->where('active', 1)->get();
+```
+در این حالت posts() به عنوان یک query builder عمل می‌کند و می‌توانیم متدهای مختلف کوئری را زنجیره کنیم.
+
+### استفاده از پراپرتی داینامیک
+اگر نیازی به شرط اضافه نداشته باشیم، می‌توانیم مستقیماً رابطه را به صورت یک پراپرتی صدا بزنیم:
+```php  
+use App\Models\User;
+
+$user = User::find(1);
+
+foreach ($user->posts as $post) {
+    // ...
+}  
+```
+در این حالت لاراول رابطه را فقط زمانی که به آن دسترسی پیدا می‌کنیم Lazy Load می‌کند (یعنی داده‌ها را تنبل‌وار و فقط در زمان نیاز می‌آورد).
+
+
+### Lazy Loading vs Eager Loading 
+**Lazy Loading (بارگذاری تنبل):** وقتی اولین بار به رابطه دسترسی پیدا کنید، کوئری اجرا می‌شود. اگر در یک حلقه بارها این کار انجام شود، تعداد زیادی کوئری اجرا خواهد شد.
+
+**Eager Loading (بارگذاری پیش‌دستانه):** اگر می‌دانید که بعد از گرفتن مدل، قرار است روابطش را هم نیاز داشته باشید، می‌توانید از eager loading استفاده کنید تا همه داده‌ها با یک یا چند کوئری کمتر از قبل گرفته شوند:
+```php
+$users = User::with('posts')->get();
+```
+این کار باعث می‌شود همه پست‌های کاربران همراه با خود کاربران واکشی شوند و در نتیجه تعداد کوئری‌ها به شدت کاهش پیدا کند.
+  
