@@ -1793,3 +1793,88 @@ $posts = Post::whereRelation(
 ```  
 
 ## Querying Relationship Absence
+
+
+گاهی اوقات ممکن است بخواهیم رکوردهایی از مدل‌ها را واکشی کنیم که هیچ رابطه‌ای با یک مدل دیگر ندارند. برای این کار می‌توانیم از متدهای doesntHave و orDoesntHave استفاده کنیم.
+
+به عنوان مثال، فرض کنید می‌خواهیم همه‌ی پست‌هایی را بگیریم که هیچ کامنتی ندارند:
+```php  
+use App\Models\Post;
+
+$posts = Post::doesntHave('comments')->get();  
+```  
+اگر بخواهیم شرط بیشتری روی رابطه‌هایی که وجود ندارند قرار دهیم، می‌توانیم از متدهای whereDoesntHave و orWhereDoesntHave استفاده کنیم. این متدها امکان بررسی محتوای رابطه‌ی ناموجود را می‌دهند:  
+```php  
+use Illuminate\Database\Eloquent\Builder;
+
+$posts = Post::whereDoesntHave('comments', function (Builder $query) {
+    $query->where('content', 'like', 'code%');
+})->get();  
+```
+لاراول اجازه می‌دهد از "dot notation" برای بررسی روابط تو در تو استفاده کنیم. به عنوان مثال، می‌توانیم همه‌ی پست‌هایی را بگیریم که هیچ کامنتی ندارند یا کامنت‌هایشان مربوط به کاربرانی نیست که بن شده‌اند:  
+```php  
+use Illuminate\Database\Eloquent\Builder;
+
+$posts = Post::whereDoesntHave('comments.author', function (Builder $query) {
+    $query->where('banned', 1);
+})->get();  
+```
+## Querying Morph To Relationships  
+برای کوئری گرفتن از رابطه‌های morphTo، می‌توان از متدهای whereHasMorph و whereDoesntHaveMorph استفاده کرد. این متدها نام رابطه را به عنوان آرگومان اول دریافت می‌کنند. سپس نام مدل‌های مرتبطی که می‌خواهید در کوئری لحاظ شوند، به عنوان آرگومان دوم ارسال می‌شود. در نهایت می‌توانید یک closure برای سفارشی‌سازی کوئری رابطه ارائه دهید.  
+```php  
+use App\Models\Comment;
+use App\Models\Post;
+use App\Models\Video;
+use Illuminate\Database\Eloquent\Builder;
+
+// Retrieve comments associated to posts or videos with a title like code%...
+$comments = Comment::whereHasMorph(
+    'commentable',
+    [Post::class, Video::class],
+    function (Builder $query) {
+        $query->where('title', 'like', 'code%');
+    }
+)->get();
+
+// Retrieve comments associated to posts with a title not like code%...
+$comments = Comment::whereDoesntHaveMorph(
+    'commentable',
+    Post::class,
+    function (Builder $query) {
+        $query->where('title', 'like', 'code%');
+    }
+)->get();  
+```  
+گاهی لازم است کوئری را بر اساس "نوع" مدل چندریختی فیلتر کنید. در این حالت، متد whereHasMorph می‌تواند یک پارامتر دوم به closure ارسال کند که نوع مدل مرتبط را مشخص می‌کند:  
+```php  
+use Illuminate\Database\Eloquent\Builder;
+
+$comments = Comment::whereHasMorph(
+    'commentable',
+    [Post::class, Video::class],
+    function (Builder $query, string $type) {
+        $column = $type === Post::class ? 'content' : 'title';
+
+        $query->where($column, 'like', 'code%');
+    }
+)->get();  
+```
+گاهی می‌خواهید فرزندان یک رابطه morphTo را بر اساس والدینشان کوئری کنید. برای این کار می‌توانید از متدهای whereMorphedTo و whereNotMorphedTo استفاده کنید. این متدها به طور خودکار نوع صحیح morph را برای مدل داده‌شده تشخیص می‌دهند:  
+```php  
+$comments = Comment::whereMorphedTo('commentable', $post)
+    ->orWhereMorphedTo('commentable', $video)
+    ->get();  
+```
+
+### Querying All Related Models
+گاهی اوقات به جای اینکه یک آرایه از مدل‌های ممکن برای رابطه‌ی چندشکلی (morphTo) مشخص کنیم، می‌توانیم از کاراکتر وایلدکارت * استفاده کنیم. این کار به لاراول می‌گوید که همه‌ی مدل‌های ممکن برای آن رابطه را از دیتابیس واکشی کند. برای انجام این کار لاراول یک کوئری اضافه اجرا خواهد کرد.
+```php  
+use Illuminate\Database\Eloquent\Builder;
+
+$comments = Comment::whereHasMorph('commentable', '*', function (Builder $query) {
+    $query->where('title', 'like', 'foo%');
+})->get();  
+```  
+  
+## Aggregating Related Models  
+### Counting Related Models  
