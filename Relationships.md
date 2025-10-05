@@ -1878,3 +1878,208 @@ $comments = Comment::whereHasMorph('commentable', '*', function (Builder $query)
   
 ## Aggregating Related Models  
 ### Counting Related Models  
+گاهی ممکن است بخواهید تعداد رکوردهای مرتبط با یک رابطه را بدست آورید، بدون اینکه خود داده‌های آن رابطه را لود کنید. برای این کار می‌توانید از متد withCount استفاده کنید. این متد یک ویژگی جدید با نام {relation}_count به مدل اضافه می‌کند.
+```php  
+use App\Models\Post;
+
+$posts = Post::withCount('comments')->get();
+
+foreach ($posts as $post) {
+    echo $post->comments_count;
+}  
+```
+در این مثال، هر شیء از Post یک فیلد اضافه به نام comments_count خواهد داشت که نشان‌دهنده تعداد کامنت‌های آن پست است.
+
+می‌توانید یک آرایه به متد withCount پاس دهید تا تعداد رکوردهای چند رابطه همزمان محاسبه شود. همچنین می‌توانید شرط‌هایی روی کوئری‌ها بگذارید:
+```php  
+use Illuminate\Database\Eloquent\Builder;
+
+$posts = Post::withCount(['votes', 'comments' => function (Builder $query) {
+    $query->where('content', 'like', 'code%');
+}])->get();
+
+echo $posts[0]->votes_count;
+echo $posts[0]->comments_count;  
+```
+در این مثال تعداد همه‌ی رأی‌ها (votes_count) و تعداد کامنت‌هایی که محتوای آن‌ها با code% شروع می‌شود (comments_count) جداگانه محاسبه شده است.
+
+شما می‌توانید نام شمارش یک رابطه را تغییر دهید. این کار زمانی مفید است که بخواهید چند بار یک رابطه را با شرایط مختلف بشمارید:
+```php  
+use Illuminate\Database\Eloquent\Builder;
+
+$posts = Post::withCount([
+    'comments',
+    'comments as pending_comments_count' => function (Builder $query) {
+        $query->where('approved', false);
+    },
+])->get();
+
+echo $posts[0]->comments_count;
+echo $posts[0]->pending_comments_count;
+```
+در این مثال دو شمارنده مختلف از رابطه‌ی comments گرفته می‌شود: یکی کل کامنت‌ها و دیگری فقط کامنت‌های تایید نشده.
+
+#### Deferred Count Loading 
+گاهی اوقات نیاز داریم تعداد رابطه‌ها را بعد از واکشی مدل اصلی محاسبه کنیم. برای این کار می‌توانیم از متد loadCount استفاده کنیم:  
+```php  
+$book = Book::first();
+
+$book->loadCount('genres');  
+```
+به این صورت یک فیلد جدید به نام `genres_count` روی مدل اضافه می‌شود که نشان‌دهنده تعداد ژانرهای کتاب است. 
+
+اگر بخواهید شرطی روی شمارش اعمال کنید، می‌توانید به جای رشته، یک آرایه شامل Closure بدهید. Closure یک Query Builder دریافت می‌کند: 
+```php 
+$book->loadCount(['reviews' => function (Builder $query) {
+    $query->where('rating', 5);
+}])
+```
+این کار باعث می‌شود فقط تعداد reviewهایی که امتیاز ۵ دارند شمرده شوند.
+
+#### Relationship Counting and Custom Select Statements 
+اگر قصد داشته باشید متد withCount را همراه با select استفاده کنید، باید دقت کنید که همیشه بعد از select فراخوانی شود. در غیر این صورت، ستون‌های شمارش‌شده در خروجی موجود نخواهند بود.
+```php
+$posts = Post::select(['title', 'body'])
+    ->withCount('comments')
+    ->get();
+```
+در اینجا علاوه بر ستون‌های title و body، یک ستون جدید به نام comments_count نیز در نتیجه وجود خواهد داشت.
+
+### Other Aggregate Functions  
+علاوه بر متد `withCount`، لاراول متدهای دیگری برای محاسبه‌ی توابع تجمعی (aggregate functions) ارائه می‌دهد. این متدها شامل `withMin`, `withMax`, `withAvg`, `withSum`, و `withExists` هستند. خروجی این متدها به‌صورت اتریبیوتی روی مدل اضافه می‌شود که نام آن به شکل `{relation}_{function}_{column}`   خواهد بود.  
+```php 
+use App\Models\Post;
+
+$posts = Post::withSum('comments', 'votes')->get();
+
+foreach ($posts as $post) {
+    echo $post->comments_sum_votes;
+}
+```
+شما می‌توانید یک نام مستعار (alias) برای نتیجه مشخص کنید تا بتوانید چندین محاسبه روی یک رابطه داشته باشید یا نام خواناتری بسازید:  
+```php  
+$posts = Post::withSum('comments as total_comments', 'votes')->get();
+
+foreach ($posts as $post) {
+    echo $post->total_comments;
+}
+```
+#### Deferred Loading(بارگذاری تنبل)  
+مانند loadCount، نسخه‌های deferred برای این متدها نیز وجود دارد. به این ترتیب، پس از واکشی مدل‌ها، می‌توانید نتایج aggregate را بارگذاری کنید:
+```php 
+$post = Post::first();
+
+$post->loadSum('comments', 'votes');  
+```
+
+#### ترکیب با Select
+اگر می‌خواهید این متدها را همراه با select استفاده کنید، حتماً متدهای aggregate را بعد از select فراخوانی کنید:
+```php  
+$posts = Post::select(['title', 'body'])
+    ->withExists('comments')
+    ->get();  
+```
+### Counting Related Models on Morph To Relationships 
+اگر بخواهید یک رابطه‌ی morphTo را eager load کنید و همچنین تعداد مدل‌های مرتبط برای موجودیت‌های مختلفی که ممکن است توسط آن رابطه بازگردانده شوند، می‌توانید از متد with همراه با morphWithCount استفاده کنید.
+
+فرض کنید مدل‌های `Photo` و `Post` می‌توانند مدل‌های `ActivityFeed` ایجاد کنند. مدل `ActivityFeed` یک رابطه‌ی morphTo به نام `parentable` دارد که اجازه می‌دهد والد مربوطه (`Photo` یا `Post`) را برای هر ActivityFeed بازیابی کنیم. همچنین فرض می‌کنیم که مدل `Photo` یک رابطه‌ی `hasMany` به `Tag` دارد و مدل `Post` یک رابطه‌ی `hasMany` به `Comment` دارد.
+
+حالا می‌خواهیم لیستی از ActivityFeedها را واکشی کنیم، والد parentable آنها را eager load کنیم و علاوه بر این تعداد Tagهای مربوط به هر Photo و تعداد Commentهای مربوط به هر Post را هم داشته باشیم:
+```php  
+use Illuminate\Database\Eloquent\Relations\MorphTo;
+
+$activities = ActivityFeed::with([
+    'parentable' => function (MorphTo $morphTo) {
+        $morphTo->morphWithCount([
+            Photo::class => ['tags'],
+            Post::class => ['comments'],
+        ]);
+    }])->get();
+```
+#### Deferred Count Loading
+اگر قبلاً مجموعه‌ای از مدل‌های ActivityFeed را دریافت کرده باشیم و بخواهیم تعداد روابط تو در توی مربوط به مدل‌های والد parentable را بارگذاری کنیم، می‌توانیم از متد loadMorphCount استفاده کنیم:
+```php  
+$activities = ActivityFeed::with('parentable')->get();
+
+$activities->loadMorphCount('parentable', [
+    Photo::class => ['tags'],
+    Post::class => ['comments'],
+]);
+```
+
+## Eager Loading(بارگذاری پیش دستانه)
+به صورت پیش‌فرض، وقتی به روابط (relationships) در Eloquent دسترسی پیدا می‌کنیم، این روابط به صورت Lazy Load بارگذاری می‌شوند. یعنی داده‌های مربوطه تا زمانی که واقعاً آن‌ها را صدا نزنیم از دیتابیس خوانده نمی‌شوند. اما این روش باعث بروز مشکل معروف N + 1 Query Problem می‌شود.
+
+**مشکل N + 1 Query**
+
+فرض کنید مدلی به نام Book داریم که به صورت belongsTo به مدل Author وصل است:
+```php  
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class Book extends Model
+{
+    /**
+     * Get the author that wrote the book.
+     */
+    public function author(): BelongsTo
+    {
+        return $this->belongsTo(Author::class);
+    }
+}  
+```
+اگر تمام کتاب‌ها را همراه نویسنده‌شان صدا بزنیم:
+```php  
+use App\Models\Book;
+
+$books = Book::all();
+
+foreach ($books as $book) {
+    echo $book->author->name;
+}
+```
+در اینجا ابتدا یک کوئری برای گرفتن همه کتاب‌ها اجرا می‌شود. سپس برای هر کتاب یک کوئری جدا برای گرفتن نویسنده‌اش اجرا خواهد شد. اگر 25 کتاب داشته باشیم، در مجموع 26 کوئری اجرا می‌شود (1 کوئری برای کتاب‌ها + 25 کوئری برای نویسنده‌ها).  
+
+--- 
+
+**حل مشکل با Eager Loading**  
+
+برای جلوگیری از این مشکل، می‌توانیم از متد with استفاده کنیم تا رابطه‌ها به صورت پیش‌دستانه بارگذاری شوند:
+```php  
+$books = Book::with('author')->get();
+
+foreach ($books as $book) {
+    echo $book->author->name;
+}  
+```
+این بار فقط دو کوئری اجرا می‌شود یک کوئری برای گرفتن همه کتاب‌ها و یک کوئری برای گرفتن همه نویسندگان برای همه کتاب‌ها:  
+```sql  
+select * from books
+
+select * from authors where id in (1, 2, 3, 4, 5, ...)  
+```
+#### Eager Loading Multiple Relationships  
+اگر بخواهیم چند رابطه را با هم بارگذاری کنیم، می‌توانیم آرایه‌ای از روابط به with بدهیم:  
+```php  
+$books = Book::with(['author', 'publisher'])->get();
+```
+
+#### Nested Eager Loading  
+گاهی نیاز داریم روابط داخلی را هم بارگذاری کنیم. برای این کار می‌توانیم از سینتکس "dot" استفاده کنیم:
+```php  
+$books = Book::with('author.contacts')->get();
+```
+یا می‌توانیم به صورت آرایه تو در تو تعریف کنیم:
+```php  
+$books = Book::with([
+    'author' => [
+        'contacts',
+        'publisher',
+    ],
+])->get();
+```
+#### Nested Eager Loading morphTo Relationships
