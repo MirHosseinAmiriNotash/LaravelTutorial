@@ -2083,3 +2083,368 @@ $books = Book::with([
 ])->get();
 ```
 #### Nested Eager Loading morphTo Relationships
+گاهی اوقات ممکن است بخواهید یک رابطه‌ی morphTo را همراه با روابط تو در توی مدل‌های مختلفی که می‌توانند در آن رابطه بازگردانده شوند، بارگذاری کنید. برای این کار می‌توانید از متد with در ترکیب با متد morphWith رابطه‌ی morphTo استفاده کنید.
+
+برای درک بهتر، مدل زیر را در نظر بگیرید:
+```php  
+<?php
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
+
+class ActivityFeed extends Model
+{
+    /**
+     * Get the parent of the activity feed record.
+     */
+    public function parentable(): MorphTo
+    {
+        return $this->morphTo();
+    }
+}
+```
+در این مثال فرض کنید مدل‌های Event، Photo و Post می‌توانند نمونه‌هایی از ActivityFeed ایجاد کنند. همچنین فرض کنید:
+
+مدل Event به یک مدل Calendar وابسته است (belongsTo).
+
+مدل Photo با مدل Tag در ارتباط است (hasMany).
+
+مدل Post به یک مدل Author وابسته است (belongsTo).
+
+---
+**بارگذاری همزمان روابط والد و روابط تو در تو**
+
+اکنون می‌خواهیم هنگام واکشی رکوردهای ActivityFeed، همه‌ی مدل‌های parentable و روابط تو در توی مربوط به هر کدام را بارگذاری کنیم. برای این کار می‌توانیم از کد زیر استفاده کنیم:
+```php  
+use Illuminate\Database\Eloquent\Relations\MorphTo;
+
+$activities = ActivityFeed::query()
+    ->with(['parentable' => function (MorphTo $morphTo) {
+        $morphTo->morphWith([
+            Event::class => ['calendar'],
+            Photo::class => ['tags'],
+            Post::class => ['author'],
+        ]);
+    }])->get();
+```
+در این کد :  
+
+تمام ActivityFeed‌ها واکشی می‌شوند.
+
+رابطه‌ی parentable برای هر activity feed لود می‌شود.
+
+برای هر مدل والد (Event، Photo، Post)، روابط تو در توی خاص خودش نیز لود می‌شود:
+
+برای Event → رابطه‌ی calendar
+
+برای Photo → رابطه‌ی tags
+
+برای Post → رابطه‌ی author
+
+این قابلیت باعث می‌شود که حتی در روابط چندشکلی (polymorphic) هم بتوانیم Eager Loading تو در تو انجام دهیم و از مشکل N+1 Query جلوگیری کنیم.  
+
+#### Eager Loading Specific Columns
+گاهی اوقات به همه‌ی ستون‌های روابطی که بارگذاری می‌کنید نیاز ندارید. لاراول این امکان را می‌دهد که مشخص کنید دقیقاً چه ستون‌هایی از رابطه واکشی شوند:
+```php  
+$books = Book::with('author:id,name,book_id')->get();  
+```
+>توجه: همیشه باید ستون id و ستون کلید خارجی مرتبط (مانند book_id) را در لیست ستون‌ها قرار دهید تا ارتباط به‌درستی برقرار شود.
+
+#### Eager Loading by Default
+گاهی ممکن است بخواهید همیشه هنگام واکشی یک مدل، برخی روابط هم به‌طور پیش‌فرض بارگذاری شوند. برای این کار می‌توانید ویژگی $with را در مدل تعریف کنید:
+```php  
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class Book extends Model
+{
+    /**
+     * The relationships that should always be loaded.
+     *
+     * @var array
+     */
+    protected $with = ['author'];
+
+    /**
+     * Get the author that wrote the book.
+     */
+    public function author(): BelongsTo
+    {
+        return $this->belongsTo(Author::class);
+    }
+
+    /**
+     * Get the genre of the book.
+     */
+    public function genre(): BelongsTo
+    {
+        return $this->belongsTo(Genre::class);
+    }
+}
+```
+اکنون هر زمان که مدل Book واکشی شود، رابطه‌ی author به‌صورت پیش‌فرض لود خواهد شد.
+
+اگر بخواهید برای یک کوئری خاص، یکی از روابط پیش‌فرض بارگذاری نشود، می‌توانید از متد without استفاده کنید:
+```php  
+$books = Book::without('author')->get();
+```
+اگر بخواهید تمام روابط پیش‌فرض تعریف‌شده در $with را نادیده بگیرید و فقط روابط خاصی را لود کنید، می‌توانید از متد withOnly استفاده کنید:
+```php  
+$books = Book::withOnly('genre')->get();
+```
+### Constraining Eager Loads
+گاهی اوقات لازم است هنگام Eager Load کردن یک رابطه، شرایط بیشتری برای فیلتر شدن داده‌های آن رابطه مشخص کنیم. برای این کار می‌توانیم به متد with یک آرایه بدهیم. کلید این آرایه نام رابطه و مقدار آن یک Closure است که شرایط اضافی را مشخص می‌کند.
+```php  
+use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
+
+$users = User::with(['posts' => function (Builder $query) {
+    $query->where('title', 'like', '%code%');
+}])->get();
+```
+در این مثال:
+
+تمام کاربران (users) دریافت می‌شوند.
+
+اما فقط پست‌هایی (posts) Eager Load می‌شوند که ستون title آن‌ها شامل کلمه‌ی code باشد.  
+  
+می‌توانیم علاوه بر شرط، روش‌های دیگری مثل orderBy, limit, select و ... را هم روی رابطه اعمال کنیم.  
+```php  
+$users = User::with(['posts' => function (Builder $query) {
+    $query->orderBy('created_at', 'desc');
+}])->get();
+```
+ در این مثال:
+
+کاربران دریافت می‌شوند.
+
+پست‌های مربوط به هر کاربر بر اساس زمان ایجاد (created_at) به صورت نزولی مرتب می‌شوند.  
+پس با این روش می‌توانیم کنترل دقیق‌تری روی داده‌های روابط Eager Load شده داشته باشیم.
+
+#### Constraining Eager Loading of morphTo Relationships
+گاهی اوقات هنگام Eager Load کردن یک رابطه‌ی morphTo، لاراول برای هر مدل مرتبط یک کوئری جداگانه اجرا می‌کند. می‌توانیم با استفاده از متد `constrain` روی رابطه‌ی MorphTo، شرایط اضافه‌تری برای هر مدل مشخص کنیم.
+```php  
+use Illuminate\Database\Eloquent\Relations\MorphTo;
+
+$comments = Comment::with(['commentable' => function (MorphTo $morphTo) {
+    $morphTo->constrain([
+        Post::class => function ($query) {
+            $query->whereNull('hidden_at');
+        },
+        Video::class => function ($query) {
+            $query->where('type', 'educational');
+        },
+    ]);
+}])->get();
+```
+ در این مثال:
+
+فقط پست‌هایی (Post) بارگذاری می‌شوند که ستون hidden_at آن‌ها تهی باشد (پست مخفی نشده باشد).
+
+فقط ویدیوهایی (Video) بارگذاری می‌شوند که ستون type آن‌ها مقدار educational داشته باشد.
+
+#### Constraining Eager Loads With Relationship Existence
+گاهی نیاز داریم که وجود داشتن یک رابطه را بررسی کنیم و همزمان همان رابطه را با شرایط خاص بارگذاری کنیم. در این حالت می‌توانیم از متد `withWhereHas` استفاده کنیم.
+
+```php  
+use App\Models\User;
+
+$users = User::withWhereHas('posts', function ($query) {
+    $query->where('featured', true);
+})->get();
+```
+در این مثال:
+
+فقط کاربرانی دریافت می‌شوند که پست‌هایی با ویژگی featured = true داشته باشند.
+
+همان پست‌های دارای ویژگی featured = true نیز برای کاربران بارگذاری می‌شوند.
+بنابراین می‌توانیم همزمان هم روی وجود رابطه شرط بگذاریم و هم فقط همان داده‌های مرتبط را Eager Load کنیم.
+
+
+## Lazy Eager Loading
+گاهی اوقات ممکن است نیاز داشته باشیم که یک رابطه را بعد از اینکه مدل اصلی دریافت شد بارگذاری کنیم. این کار زمانی مفید است که بخواهیم به صورت پویا تصمیم بگیریم کدام رابطه‌ها بارگذاری شوند.
+```php  
+use App\Models\Book;
+
+$books = Book::all();
+
+if ($condition) {
+    $books->load('author', 'publisher');
+}
+```
+ در این مثال:
+
+همه‌ی کتاب‌ها دریافت می‌شوند.
+
+اگر شرط $condition برقرار باشد، روابط author و publisher نیز بارگذاری می‌شوند.
+
+اگر بخواهیم هنگام Lazy Loading شرایط بیشتری روی کوئری روابط اعمال کنیم، می‌توانیم یک آرایه ارسال کنیم که کلید آن نام رابطه و مقدار آن یک Closure است:
+```php  
+$author->load(['books' => function (Builder $query) {
+    $query->orderBy('published_date', 'asc');
+}]);
+```
+در این مثال:
+
+کتاب‌های مربوط به نویسنده بارگذاری می‌شوند.
+
+اما ترتیب آن‌ها بر اساس تاریخ انتشار (published_date) صعودی خواهد بود.
+
+
+برای بارگذاری روابط فقط زمانی که هنوز بارگذاری نشده‌اند، می‌توان از متد loadMissing استفاده کرد:
+```php  
+$book->loadMissing('author');
+```
+>این دستور باعث می‌شود فقط در صورتی که رابطه‌ی author از قبل بارگذاری نشده باشد، لود شود.
+
+#### Nested Lazy Eager Loading and morphTo
+گاهی اوقات لازم است بعد از گرفتن داده‌ها، یک رابطه‌ی morphTo را همراه با روابط تو در توی مدل‌های مختلف آن لود کنیم. برای این کار از متد loadMorph استفاده می‌کنیم.
+
+این متد دو آرگومان می‌گیرد:
+
+1- نام رابطه‌ی morphTo
+
+2- یک آرایه که کلید آن کلاس مدل‌ها و مقدار آن روابطی است که باید لود شوند.
+
+فرض کنید مدلی به نام ActivityFeed داریم:
+```php  
+<?php
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
+
+class ActivityFeed extends Model
+{
+    /**
+     * Get the parent of the activity feed record.
+     */
+    public function parentable(): MorphTo
+    {
+        return $this->morphTo();
+    }
+}
+```
+حالا فرض کنیم مدل‌های زیر می‌توانند ActivityFeed ایجاد کنند:
+
+مدل Event که به یک Calendar تعلق دارد.
+
+مدل Photo که با چندین Tag مرتبط است.
+
+مدل Post که به یک Author تعلق دارد.
+
+```php  
+$activities = ActivityFeed::with('parentable')
+    ->get()
+    ->loadMorph('parentable', [
+        Event::class => ['calendar'],
+        Photo::class => ['tags'],
+        Post::class => ['author'],
+    ]);
+```
+در این مثال:
+
+ابتدا تمام ActivityFeedها همراه با رابطه‌ی parentable لود می‌شوند.
+
+سپس بسته به اینکه parentable چه مدلی باشد (Event, Photo یا Post)، روابط مربوطه هم لود می‌شوند:
+
+اگر والد Event باشد → رابطه‌ی calendar لود می‌شود.
+
+اگر والد Photo باشد → رابطه‌ی tags لود می‌شود.
+
+اگر والد Post باشد → رابطه‌ی author لود می‌شود.
+
+ با این روش می‌توانیم Lazy Loading را برای روابط چندریختی (morphTo) به همراه روابط تو در توی آن‌ها انجام دهیم.
+
+## Automatic Eager Loading
+در بسیاری از مواقع، لاراول می‌تواند به صورت خودکار روابطی که به آن‌ها دسترسی پیدا می‌کنید را Eager Load کند. برای فعال‌سازی این ویژگی باید متد Model::automaticallyEagerLoadRelationships را در متد boot داخل کلاس AppServiceProvider فراخوانی کنید:
+```php  
+use Illuminate\Database\Eloquent\Model;
+
+/**
+ * Bootstrap any application services.
+ */
+public function boot(): void
+{
+    Model::automaticallyEagerLoadRelationships();
+}
+```
+وقتی این ویژگی فعال باشد، لاراول به صورت خودکار هر رابطه‌ای که به آن دسترسی پیدا کنید (و هنوز لود نشده) را بارگذاری می‌کند.
+```php  
+use App\Models\User;
+
+$users = User::all();
+
+foreach ($users as $user) {
+    foreach ($user->posts as $post) {
+        foreach ($post->comments as $comment) {
+            echo $comment->content;
+        }
+    }
+}
+```
+ در حالت عادی:
+
+برای هر کاربر یک کوئری برای دریافت posts اجرا می‌شود.
+
+برای هر پست هم یک کوئری برای دریافت comments اجرا می‌شود.
+
+**اما وقتی قابلیت Automatic Eager Loading فعال باشد:**
+
+وقتی اولین بار به posts یکی از کاربران دسترسی پیدا کنید، لاراول همه‌ی پست‌های همه‌ی کاربران موجود در کالکشن را یک‌جا بارگذاری می‌کند.
+
+همچنین وقتی اولین بار به comments یکی از پست‌ها دسترسی پیدا کنید، تمام کامنت‌های همه‌ی پست‌های دریافت شده نیز یک‌جا بارگذاری خواهند شد.
+
+اگر نمی‌خواهید این ویژگی به صورت سراسری فعال باشد، می‌توانید آن را فقط برای یک کالکشن خاص فعال کنید. برای این کار از متد withRelationshipAutoloading استفاده می‌کنیم:
+```php  
+$users = User::where('vip', true)->get();
+
+return $users->withRelationshipAutoloading();
+```
+ با این قابلیت، مدیریت کوئری‌ها بسیار بهینه‌تر و خودکارتر انجام می‌شود، مخصوصاً در سناریوهایی که روابط تو در تو را زیاد استفاده می‌کنید.
+
+## Preventing Lazy Loading
+همانطور که قبلاً گفته شد، Eager Loading می‌تواند به شکل قابل توجهی باعث بهبود عملکرد (Performance) برنامه شود. چون به جای اینکه برای هر رابطه چندین Query به دیتابیس ارسال شود، همه روابط مورد نیاز در همان ابتدا بارگذاری می‌شوند.
+
+اما اگر بخواهید مطمئن شوید که برنامه شما هیچ‌وقت Lazy Loading انجام ندهد، می‌توانید از متد preventLazyLoading استفاده کنید که در کلاس پایه Eloquent موجود است. معمولاً این متد را باید داخل متد boot در کلاس AppServiceProvider فراخوانی کنید.
+```php 
+use Illuminate\Database\Eloquent\Model;
+
+/**
+ * Bootstrap any application services.
+ */
+public function boot(): void
+{
+    Model::preventLazyLoading(! $this->app->isProduction());
+}
+```
+در اینجا:
+
+اگر در محیط Production باشید، Lazy Loading فعال می‌ماند (برای جلوگیری از بروز مشکل در اجرا).
+
+اگر در محیط Development یا Testing باشید، لاراول در صورت تلاش برای Lazy Loading خطای Illuminate\Database\LazyLoadingViolationException می‌دهد.
+
+
+اگر بخواهید به جای اینکه برنامه خطا بدهد، فقط یک پیام لاگ شود، می‌توانید از متد handleLazyLoadingViolationsUsing استفاده کنید:
+```php  
+Model::handleLazyLoadingViolationUsing(function (Model $model, string $relation) {
+    $class = $model::class;
+
+    info("Attempted to lazy load [{$relation}] on model [{$class}].");
+});
+```
+با این کار:
+
+لاراول اجرای برنامه را متوقف نمی‌کند.
+
+فقط در لاگ ثبت می‌شود که چه مدلی قصد Lazy Load کردن چه رابطه‌ای را داشته است.
+
+
+با این ویژگی می‌توانید مطمئن شوید که هیچ رابطه‌ای به صورت ناخواسته و مخفی Lazy Load نشود و اگر هم چنین اتفاقی بیفتد، سریعاً در مرحله توسعه متوجه شوید و کدتان را اصلاح کنید.
+
+## Inserting and Updating Related Models
+### The save Method
+
